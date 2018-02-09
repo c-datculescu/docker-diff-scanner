@@ -329,6 +329,7 @@ func (cp *ContainerParent) getParent() error {
 			AssignedContainer: cp.AssignedContainer,
 			Hash:              parentHash,
 		}
+		generalParents[parentHash] = parent
 		cp.AssignedContainer.Parents.PushBack(parent)
 		parent.SharedCounter = 1
 	}
