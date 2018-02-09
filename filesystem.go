@@ -143,9 +143,9 @@ func main() {
 		fmt.Printf("- mount diff size: %d\n", container.MountDiffSize)
 		fmt.Printf("Layers statistics:\n")
 		for e := container.Parents.Front(); e != nil; e = e.Next() {
-			fmt.Printf("\tLayer id: %s\n", e.Value.(ContainerParent).Hash)
-			fmt.Printf("\t- cache diff location: %s\n", e.Value.(ContainerParent).CacheID)
-			fmt.Printf("\t- cache diff size: %d\n", e.Value.(ContainerParent).CacheDiffSize)
+			fmt.Printf("\tLayer id: %s\n", e.Value.(*ContainerParent).Hash)
+			fmt.Printf("\t- cache diff location: %s\n", e.Value.(*ContainerParent).CacheID)
+			fmt.Printf("\t- cache diff size: %d\n", e.Value.(*ContainerParent).CacheDiffSize)
 		}
 	}
 
@@ -166,7 +166,7 @@ func main() {
 			}
 
 			for e := container.Parents.Front(); e != nil; e = e.Next() {
-				if e.Value.(ContainerParent).CacheID == folder {
+				if e.Value.(*ContainerParent).CacheID == folder {
 					found = true
 					break
 				}
