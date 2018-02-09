@@ -289,7 +289,10 @@ type ContainerParent struct {
 	CacheDiffSize     int64      // identifies the size of the current layer diff
 	CacheID           string     // identifies what is the current cache id for he current parent
 	AssignedContainer *Container // checks to which container is the current layer allocated
+	SharedCounter     int        // how many times the layer is shared among running containers
 }
+
+var generalParents = map[string]*ContainerParent{}
 
 func (cp *ContainerParent) init() {
 	cp.getCacheID()
@@ -315,12 +318,20 @@ func (cp *ContainerParent) getParent() error {
 
 	parentHash := getHashFromSha256(contents)
 	cp.ParentHash = parentHash
-	// create a new structure for another parent and allocate it
-	parent := &ContainerParent{
-		AssignedContainer: cp.AssignedContainer,
-		Hash:              parentHash,
+	// do we have the hash already in there?
+	parent, ok := generalParents[parentHash]
+	if ok == true {
+		cp.AssignedContainer.Parents.PushBack(parent)
+		parent.SharedCounter++
+	} else {
+		// create a new structure for another parent and allocate it
+		parent := &ContainerParent{
+			AssignedContainer: cp.AssignedContainer,
+			Hash:              parentHash,
+		}
+		cp.AssignedContainer.Parents.PushBack(parent)
+		parent.SharedCounter = 1
 	}
-	cp.AssignedContainer.Parents.PushBack(parent)
 	parent.init()
 	return nil
 }
