@@ -325,7 +325,7 @@ func (cp *ContainerParent) getParent() error {
 		parent.SharedCounter++
 	} else {
 		// create a new structure for another parent and allocate it
-		parent := &ContainerParent{
+		parent = &ContainerParent{
 			AssignedContainer: cp.AssignedContainer,
 			Hash:              parentHash,
 		}
