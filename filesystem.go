@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"container/list"
 	"errors"
 	"flag"
 	"fmt"
@@ -135,16 +136,16 @@ func main() {
 	// get the sumary:
 	for containerHash, container := range allContainers {
 		fmt.Printf("Statistics for continer: %s\n", containerHash)
-		fmt.Printf("- %d layers\n", len(container.Parents))
+		fmt.Printf("- %d layers\n", container.Parents.Len())
 		fmt.Printf("- init diff location: %s\n", container.InitID)
 		fmt.Printf("- init diff size: %d\n", container.InitDiffSize)
 		fmt.Printf("- mount diff location: %s\n", container.MountID)
 		fmt.Printf("- mount diff size: %d\n", container.MountDiffSize)
 		fmt.Printf("Layers statistics:\n")
-		for layerID, layer := range container.Parents {
-			fmt.Printf("\tLayer id: %s\n", layerID)
-			fmt.Printf("\t- cache diff location: %s\n", layer.CacheID)
-			fmt.Printf("\t- cache diff size: %d\n", layer.CacheDiffSize)
+		for e := container.Parents.Front(); e != nil; e = e.Next() {
+			fmt.Printf("\tLayer id: %s\n", e.Value.(ContainerParent).Hash)
+			fmt.Printf("\t- cache diff location: %s\n", e.Value.(ContainerParent).CacheID)
+			fmt.Printf("\t- cache diff size: %d\n", e.Value.(ContainerParent).CacheDiffSize)
 		}
 	}
 
@@ -163,8 +164,9 @@ func main() {
 				found = true
 				break
 			}
-			for _, parent := range container.Parents {
-				if parent.CacheID == folder {
+
+			for e := container.Parents.Front(); e != nil; e = e.Next() {
+				if e.Value.(ContainerParent).CacheID == folder {
 					found = true
 					break
 				}
@@ -183,12 +185,12 @@ func main() {
 
 // Container represents the full data associated with a container
 type Container struct {
-	ContainerData *ContainerData              // basic data associated with a container
-	InitID        string                      // the init data layer.
-	MountID       string                      // the mount id of the container data layer
-	Parents       map[string]*ContainerParent // the list of container parents available along with some info about them
-	InitDiffSize  int64                       // the size of the diff for the current container init layer
-	MountDiffSize int64                       // the size of the diff folder allocated to the current container mount
+	ContainerData *ContainerData // basic data associated with a container
+	InitID        string         // the init data layer.
+	MountID       string         // the mount id of the container data layer
+	Parents       *list.List     // the list of container parents available along with some info about them
+	InitDiffSize  int64          // the size of the diff for the current container init layer
+	MountDiffSize int64          // the size of the diff folder allocated to the current container mount
 }
 
 // init initializes the container, populating all the fields with the provided values
@@ -218,10 +220,10 @@ func (c *Container) retrieveParents() error {
 	// create a new parent struct and allocate the needed fields inside
 	parent := &ContainerParent{
 		AssignedContainer: c,
+		Hash:              parentHash,
 	}
-	c.Parents = map[string]*ContainerParent{}
-	parent.Hash = parentHash
-	c.Parents[parentHash] = parent
+	c.Parents = list.New()
+	c.Parents.PushBack(parent)
 	parent.init()
 
 	return nil
@@ -318,7 +320,7 @@ func (cp *ContainerParent) getParent() error {
 		AssignedContainer: cp.AssignedContainer,
 		Hash:              parentHash,
 	}
-	cp.AssignedContainer.Parents[parentHash] = parent
+	cp.AssignedContainer.Parents.PushBack(parent)
 	parent.init()
 	return nil
 }
