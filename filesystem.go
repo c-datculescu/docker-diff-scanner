@@ -2,7 +2,7 @@ package main
 
 import (
 	"bytes"
-	"container/list"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -14,72 +14,227 @@ import (
 	"plugin"
 	"strconv"
 	"strings"
+	"time"
 )
 
-// Filesystem represents a particular implementation for a filesystem coming in from separate plugins
-type Filesystem interface {
-	GetContainerFolderPath(basePath string) string
-	GetContainerInitFilePath(basePath, containerFullHash string) string
-	GetContainerMountFilePath(basePath, containerFullHash string) string
-	GetContainerParentPath(basePath, containerFullHash string) string
-	GetDiffFolderPath(basePath, layerHash string) string
-	GetLayerCacheFilePath(basePath, sha256Hash string) string
-	GetLayerParentPath(basePath, sha256Hash string) string
-	GetDiffPath(basePath string) string
-	ProcessDiffFolders(initialFolders []string) []string
+// FilesystemPather is the interface responsible for returning paths for each supported filesystem
+type FilesystemPather interface {
+	GetContainerMountPath(fsPath, containerHash string) string
+	GetParentFileLocation(fsPath, containerHash string) string
+	GetLayerSizePath(fsPath, layerHash string) string
+	GetLayerParentPath(fsPath, layerHash string) string
 }
 
-var (
-	filesystem       = flag.String("fs", "aufs", "The current storage filesystem for docker")
-	dockerLibPath    = flag.String("lib-path", "/var/lib/docker/", "The path to the docker managed files")
-	loadedFilesystem Filesystem
-)
+// DockerInspectResult is the result of inspecting the needed container
+type DockerInspectResult struct {
+	Name         string                    `json:"Name"`         // the name of the current container prefixed with /
+	State        *DockerInspectStateResult `json:"State"`        // the state of the current container
+	RestartCount int                       `json:"RestartCount"` // the number of executed restarts so far
+}
 
-// retrieves all the current containers
-// return error if something goes wrong
-func getCurrentContainers() ([]string, error) {
-	output, err := exec.Command("ls", loadedFilesystem.GetContainerFolderPath(*dockerLibPath)).Output()
+// DockerInspectStateResult is the result for the state subrecord
+type DockerInspectStateResult struct {
+	Status    string    `json:"Status"`    // the current status of the container as a string
+	Pid       int       `json:"Pid"`       // the pid of the current container
+	StartedAt time.Time `json:"StartedAt"` // the time that the container was started
+}
+
+// Container represents a container reported by docker
+type Container struct {
+	Name             string
+	Hash             string
+	COWSize          int64                // the current size of the filesystem allocated to the current container
+	COWLocation      string               // the path for the current filesystem allocated to the container
+	ParentChain      *ContainerLayer      // the parent chain for the current container
+	ContainerDetails *DockerInspectResult // contains information about the current running docker container
+
+	Filesystem FilesystemPather // the path finder for the current filesystem
+}
+
+// Init performs all the needed functions for populating the current container
+func (c *Container) Init() error {
+	err := c.GetContainerDetails()
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	// clean the output. We do not need the empty lines, folders: . and ..
-	tempContainers := strings.Split(string(output), "\n")
-	containers := []string{}
-	for _, container := range tempContainers {
-		if container != "." && container != ".." && container != "" {
-			containers = append(containers, container)
-		}
-	}
-
-	return containers, nil
-}
-
-// getCurrentDiffFolders returns the diff related folders currently recorded by docker
-func getCurrentDiffFolders() []string {
-	diffPath := loadedFilesystem.GetDiffPath(*dockerLibPath)
-	output, err := exec.Command("ls", diffPath).Output()
+	err = c.GetCOWSize()
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
-	folders := strings.Split(string(output), "\n")
-	finalDiffFolders := loadedFilesystem.ProcessDiffFolders(folders)
-	return finalDiffFolders
+
+	err = c.GetParentLayer()
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
-// loadFilesystemPlugin loads a dynamic plugin based on the filesystem that
-// is provided as a value
-func loadFilesystemPlugin() {
+// GetContainerDetails returns details about the currently monitored container
+func (c *Container) GetContainerDetails() error {
+	output, err := exec.Command("docker", "inspect", c.Hash).Output()
+	if err != nil {
+		return err
+	}
+
+	// decode the json
+	var decoded []*DockerInspectResult
+	err = json.Unmarshal(output, &decoded)
+	if err != nil {
+		return err
+	}
+	if len(decoded) == 0 {
+		return errors.New("No containers matching hash: " + c.Hash + " exist!")
+	}
+
+	c.ContainerDetails = decoded[0]
+	return nil
+}
+
+// GetCOWSize returns the size of the filesystem occupied by the current container
+func (c *Container) GetCOWSize() error {
+	mountLocation := c.Filesystem.GetContainerMountPath(*fsPath, c.Hash)
+	size, err := CalculateFolderSize(mountLocation)
+	if err != nil {
+		return err
+	}
+
+	// allocate the COW size and path for easy processing
+	c.COWSize = size
+	c.COWLocation = mountLocation
+	return nil
+}
+
+// GetParentLayer returns a layer that represents the parent of the current container
+func (c *Container) GetParentLayer() error {
+	parentFileLocation := c.Filesystem.GetParentFileLocation(*fsPath, c.Hash)
+	// read the contents of the file
+	contents, err := ioutil.ReadFile(parentFileLocation)
+	if err != nil {
+		return err
+	}
+
+	c.ParentChain = NewContainerLayer(string(contents))
+	// initialize the layer chain
+	err = c.ParentChain.Init()
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// NewContainerLayer returns a new fresh container layer
+func NewContainerLayer(sha256hash string) *ContainerLayer {
+	// check if the containerLayer already exists and return it without actually doing anything
+	if value, exists := ExistingLayers[sha256hash]; exists == true {
+		return value
+	}
+	return &ContainerLayer{
+		Hash: sha256hash,
+	}
+}
+
+// ExistingLayers records the existing layers so we do not have to calculate them again
+var ExistingLayers map[string]*ContainerLayer
+
+// ContainerLayer represents a layer that the container uses
+// Various layers will be shared between various containers, these
+// statistics will also be presented
+type ContainerLayer struct {
+	Size     int64 // currently recorded size for the layer
+	Hash     string
+	Location string
+	Parent   *ContainerLayer
+
+	Filesystem FilesystemPather
+}
+
+// Init initializes the current layer and calculates
+// parents
+// size
+func (c *ContainerLayer) Init() error {
+	if c.Parent != nil {
+		// the parent has already initialized. no need to do anthing there
+		return nil
+	}
+	err := c.ReadSize()
+	if err != nil {
+		return err
+	}
+	c.GetParent()
+	return nil
+}
+
+// ReadSize reads the size of the current layer as recorded in the filesystem
+func (c *ContainerLayer) ReadSize() error {
+	sizeLocation := c.Filesystem.GetLayerSizePath(*fsPath, c.Hash)
+	contents, err := ioutil.ReadFile(sizeLocation)
+	if err != nil {
+		return err
+	}
+
+	size, err := strconv.ParseInt(string(contents), 10, 64)
+	if err != nil {
+		return err
+	}
+
+	c.Size = size
+
+	return nil
+}
+
+// GetParent allocates the parent of the current layer if it exists. In the case this is a final layer,
+// this will be nil
+func (c *ContainerLayer) GetParent() error {
+	parentLocation := c.Filesystem.GetLayerParentPath(*fsPath, c.Hash)
+
+	// check if file exists on disk.
+	// If there is no file existing on disk, this is the last layer, so the parent will be nil
+	if _, err := os.Stat(parentLocation); os.IsNotExist(err) {
+		c.Parent = nil
+		return nil
+	}
+
+	contents, err := ioutil.ReadFile(parentLocation)
+	if err != nil {
+		return err
+	}
+
+	// get the sha of the hash. The sha will be in the format: sha256:hash
+	bits := strings.Split(string(contents), ":")
+	var parentHash string
+	if len(bits) == 2 {
+		parentHash = bits[1]
+	} else {
+		return errors.New("The hash is wrong: " + string(contents))
+	}
+
+	c.Parent = NewContainerLayer(parentHash)
+	err = c.Parent.Init()
+	if err != nil {
+		return nil
+	}
+
+	return nil
+}
+
+// loadFilesystemPlugin loads the apropriate plugin representing the filesystem. The plugin will be responsible for
+// returning the paths where we can find the apropriate folders containing the information
+func loadFilesystemPlugin(filesystem string) FilesystemPather {
 	// check which filesystem plugin do we need to load
 	// issue error and stop if the filesystem is not available for load
 	var mod string
-	switch *filesystem {
+	switch filesystem {
 	case "aufs":
 		mod = "./plugins/aufs/aufs.so"
 	case "overlay2":
 		mod = "./plugins/overlay2/overlay2.so"
+	case "devicemapper":
+		mod = "./plugins/devicemapper/devicemapper.so"
 	default:
-		log.Fatal(errors.New("Supported filesystems: aufs, overlay2. Provided filesystem " + *filesystem + " is currently not supported!"))
+		log.Fatal(errors.New("Supported filesystems: aufs, overlay2, devicemapper. Provided filesystem " + filesystem + " is currently not supported!"))
 	}
 
 	// attempt to open the plugin. Issue error if the plugin cannot be loaded for whatever reason
@@ -96,270 +251,16 @@ func loadFilesystemPlugin() {
 	}
 
 	// check te type of the loaded plugin, to make sure it is compatible with what we need
-	pluginFilesystem, ok := loadedFS.(Filesystem)
+	pluginFilesystem, ok := loadedFS.(FilesystemPather)
 	if !ok {
 		log.Fatal(errors.New("Cannot load symbol, the typecheck failed"))
 	}
 
-	// allocate the current plugin in order to be used
-	loadedFilesystem = pluginFilesystem
+	return pluginFilesystem
 }
 
-func main() {
-	// process the flags
-	flag.Parse()
-
-	// load the plugin for the current filesystem
-	loadFilesystemPlugin()
-
-	// get the current containers (running, stopped, failed, etc.)
-	containers, err := getCurrentContainers()
-	if err != nil {
-		log.Println("Error processing containers: " + err.Error())
-		os.Exit(2)
-	}
-
-	allContainers := map[string]*Container{}
-
-	// process containers
-	for _, container := range containers {
-		localContainer := &Container{
-			ContainerData: &ContainerData{
-				ID: container,
-			},
-		}
-
-		allContainers[container] = localContainer
-		localContainer.init()
-	}
-
-	// get the sumary:
-	for containerHash, container := range allContainers {
-		fmt.Printf("Statistics for continer: %s\n", containerHash)
-		fmt.Printf("- %d layers\n", container.Parents.Len())
-		fmt.Printf("- init diff location: %s\n", container.InitID)
-		fmt.Printf("- init diff size: %d\n", container.InitDiffSize)
-		fmt.Printf("- mount diff location: %s\n", container.MountID)
-		fmt.Printf("- mount diff size: %d\n", container.MountDiffSize)
-		fmt.Printf("Layers statistics:\n")
-		for e := container.Parents.Front(); e != nil; e = e.Next() {
-			fmt.Printf("\tLayer id: %s\n", e.Value.(*ContainerParent).Hash)
-			fmt.Printf("\t- cache diff location: %s\n", e.Value.(*ContainerParent).CacheID)
-			fmt.Printf("\t- cache diff size: %d\n", e.Value.(*ContainerParent).CacheDiffSize)
-		}
-	}
-
-	diffFolders := getCurrentDiffFolders()
-	hasUnusedLayers := false
-	// check if we have layers that are not used
-	for _, folder := range diffFolders {
-		found := false
-		for _, container := range allContainers {
-			if folder == container.InitID {
-				found = true
-				break
-			}
-
-			if folder == container.MountID {
-				found = true
-				break
-			}
-
-			for e := container.Parents.Front(); e != nil; e = e.Next() {
-				if e.Value.(*ContainerParent).CacheID == folder {
-					found = true
-					break
-				}
-			}
-		}
-		if found == false {
-			fmt.Printf("Diff %s is orphaned!\n", folder)
-			hasUnusedLayers = true
-		}
-	}
-
-	if hasUnusedLayers == false {
-		fmt.Println("No unused layers detected!")
-	}
-}
-
-// Container represents the full data associated with a container
-type Container struct {
-	ContainerData *ContainerData // basic data associated with a container
-	InitID        string         // the init data layer.
-	MountID       string         // the mount id of the container data layer
-	Parents       *list.List     // the list of container parents available along with some info about them
-	InitDiffSize  int64          // the size of the diff for the current container init layer
-	MountDiffSize int64          // the size of the diff folder allocated to the current container mount
-}
-
-// init initializes the container, populating all the fields with the provided values
-func (c *Container) init() error {
-	if err := c.retrieveInitID(); err != nil {
-		return err
-	}
-	if err := c.retrieveMountID(); err != nil {
-		return err
-	}
-	if err := c.calculateMountDiffSize(); err != nil {
-		return err
-	}
-	if err := c.calcaulateInitDiffSize(); err != nil {
-		return err
-	}
-	return c.retrieveParents()
-}
-
-// retrieves all the parents of the current container and stores them
-func (c *Container) retrieveParents() error {
-	contents, err := readFileData(loadedFilesystem.GetContainerParentPath(*dockerLibPath, c.ContainerData.ID))
-	if err != nil {
-		return err
-	}
-	parentHash := getHashFromSha256(contents)
-	// create a new parent struct and allocate the needed fields inside
-	parent := &ContainerParent{
-		AssignedContainer: c,
-		Hash:              parentHash,
-	}
-	c.Parents = list.New()
-	c.Parents.PushBack(parent)
-	parent.init()
-
-	return nil
-}
-
-// calculates the diff size for the current layer of the current container
-func (c *Container) calcaulateInitDiffSize() error {
-	size, err := calculateFolderSize(loadedFilesystem.GetDiffFolderPath(*dockerLibPath, c.InitID))
-	if err != nil {
-		return err
-	}
-	c.InitDiffSize = size
-
-	return nil
-}
-
-func (c *Container) calculateMountDiffSize() error {
-	size, err := calculateFolderSize(loadedFilesystem.GetDiffFolderPath(*dockerLibPath, c.MountID))
-	if err != nil {
-		return err
-	}
-	c.MountDiffSize = size
-
-	return nil
-}
-
-// locates and stores the init-id for the current container
-func (c *Container) retrieveInitID() error {
-	contents, err := readFileData(loadedFilesystem.GetContainerInitFilePath(*dockerLibPath, c.ContainerData.ID))
-	if err != nil {
-		return err
-	}
-	c.InitID = contents
-	return nil
-}
-
-// locates and stores the mount-id for the current container
-func (c *Container) retrieveMountID() error {
-	contents, err := readFileData(loadedFilesystem.GetContainerMountFilePath(*dockerLibPath, c.ContainerData.ID))
-	if err != nil {
-		return err
-	}
-	c.MountID = contents
-	return nil
-}
-
-// ContainerData represents the data that can be obtained from isuing
-// docker info {container id}
-type ContainerData struct {
-	Name string `json:"Name"` // the name of the current running container
-	ID   string `json:"Id"`   // the full id of the current running container
-}
-
-// performs a docker info command on the current container and retrieves the
-// additional data needed
-func (cd *ContainerData) getInfo() {}
-
-// ContainerParent represents a single parent of a container currently existing
-type ContainerParent struct {
-	Hash              string     // the hash of the current parent
-	IsLeaf            bool       // identifies whether the current parent is a leaf parent or not. A leaf parent will not have another parent
-	ParentHash        string     // identifies what is the current's parent parent if there is any. Please see IsLeaf
-	CacheDiffSize     int64      // identifies the size of the current layer diff
-	CacheID           string     // identifies what is the current cache id for he current parent
-	AssignedContainer *Container // checks to which container is the current layer allocated
-	SharedCounter     int        // how many times the layer is shared among running containers
-}
-
-var generalParents = map[string]*ContainerParent{}
-
-func (cp *ContainerParent) init() {
-	cp.getCacheID()
-	cp.getCacheDiffSize()
-	cp.getParent()
-}
-
-// retrieves the direct parent of the current layer
-func (cp *ContainerParent) getParent() error {
-	location := loadedFilesystem.GetLayerParentPath(*dockerLibPath, cp.Hash)
-
-	// check if the parent file is there. If it is not, then this is a leaf and there is no more need
-	// to continue scanning for parents
-	if _, err := os.Stat(location); os.IsNotExist(err) {
-		cp.IsLeaf = true
-		return nil
-	}
-
-	contents, err := readFileData(location)
-	if err != nil {
-		return err
-	}
-
-	parentHash := getHashFromSha256(contents)
-	cp.ParentHash = parentHash
-	// do we have the hash already in there?
-	parent, ok := generalParents[parentHash]
-	if ok == true {
-		cp.AssignedContainer.Parents.PushBack(parent)
-		parent.SharedCounter++
-	} else {
-		// create a new structure for another parent and allocate it
-		parent = &ContainerParent{
-			AssignedContainer: cp.AssignedContainer,
-			Hash:              parentHash,
-		}
-		generalParents[parentHash] = parent
-		cp.AssignedContainer.Parents.PushBack(parent)
-		parent.SharedCounter = 1
-	}
-	parent.init()
-	return nil
-}
-
-// retrieves the cache id for the current layer
-func (cp *ContainerParent) getCacheID() error {
-	contents, err := readFileData(loadedFilesystem.GetLayerCacheFilePath(*dockerLibPath, cp.Hash))
-	if err != nil {
-		return err
-	}
-	cp.CacheID = contents
-	return nil
-}
-
-// retrieves the size of the diff folder for the cache
-func (cp *ContainerParent) getCacheDiffSize() error {
-	location := loadedFilesystem.GetDiffFolderPath(*dockerLibPath, cp.CacheID)
-	size, err := calculateFolderSize(location)
-	if err != nil {
-		return err
-	}
-	cp.CacheDiffSize = size
-	return nil
-}
-
-// calculateFolderSize calculates the size of a given folder
-func calculateFolderSize(folderPath string) (int64, error) {
+// CalculateFolderSize calculates the folder size given a path
+func CalculateFolderSize(folderPath string) (int64, error) {
 	diskCommand := exec.Command("du", "-sb", folderPath)
 	getFirstColumnCommand := exec.Command("cut", "-f1")
 	reader, writer := io.Pipe()
@@ -385,22 +286,45 @@ func calculateFolderSize(folderPath string) (int64, error) {
 	return size, nil
 }
 
-// readFileData reads a given file and returns the string representation of the contents of the file
-func readFileData(filePath string) (string, error) {
-	contents, err := ioutil.ReadFile(filePath)
+// GetAllContainers returns all the containers currently running in the target server
+func GetAllContainers() ([]*Container, error) {
+	files, err := ioutil.ReadDir(*fsPath)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	return string(contents), nil
+	containers := []*Container{}
+	for _, file := range files {
+		container := &Container{
+			Hash: file.Name(),
+		}
+		container.Init()
+		containers = append(containers, container)
+	}
+
+	return containers, nil
 }
 
-// getHashFromSha256 takes a string in any format. If the format starts with sha256:, then
-// only the last part of the string is returned
-func getHashFromSha256(str string) string {
-	if strings.HasPrefix(string(str), "sha256:") {
-		str = strings.Replace(str, "sha256:", "", -1)
-	}
+var (
+	fsPath = flag.String("fs-path", "/var/lib/docker", "The path where the docker filesystem can be located")
+	fs     = flag.String("fs", "aufs", "The filesystem current docker daemon uses")
+)
 
-	return str
+func main() {
+	flag.Parse()
+
+	containers, err := GetAllContainers()
+	if err != nil {
+		log.Fatal(err)
+	}
+	for _, container := range containers {
+		// start printing the details about the current container
+		fmt.Printf(
+			"Name: %s\nHash: %s\nStatus: %s\nStartedAt: %s",
+			container.ContainerDetails.Name,
+			container.Hash,
+			container.ContainerDetails.State.Status,
+			container.ContainerDetails.State.StartedAt,
+		)
+	}
 }

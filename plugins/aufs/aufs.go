@@ -1,64 +1,21 @@
-// the aufs directory structure is diferend than the one provided by overlay2
-// so we require differend approaches to process various types of storage systems
 package main
 
 type filesystem string
 
-// GetContainerFolderPath returns the path that corresponds to the folder where all containers
-// are located
-func (fs filesystem) GetContainerFolderPath(basePath string) string {
-	return basePath + "/image/aufs/layerdb/mounts/"
+func (fs filesystem) GetContainerMountPath(fsPath, containerHash string) string {
+	return fsPath + "/image/aufs/layerdb/mounts/" + containerHash + "/mount-id"
 }
 
-// GetImagePath returns the path that corresponds to the location of the image folder
-// aka. /var/lib/docker/image/aufs/
-func (fs filesystem) GetContainerInitFilePath(basePath, containerFullHash string) string {
-	return basePath + "/image/aufs/layerdb/mounts/" + containerFullHash + "/init-id"
+func (fs filesystem) GetParentFileLocation(fsPath, containerHash string) string {
+	return fsPath + "/image/aufs/layerdb/mounts/" + containerHash + "/parent"
 }
 
-// GetMountFilePath returns the path for the mount-id file in the docker filesystem
-// this holds a reference to the location of the actual data file
-func (fs filesystem) GetContainerMountFilePath(basePath, containerFullHash string) string {
-	return basePath + "/image/aufs/layerdb/mounts/" + containerFullHash + "/mount-id"
+func (fs filesystem) GetLayerSizePath(fsPath, layerHash string) string {
+	return fsPath + "/image/aufs/layerdb/sha256/" + layerHash + "/size"
 }
 
-// GetDiffPath returns the diff path for a provided hash
-func (fs filesystem) GetDiffFolderPath(basePath, layerHash string) string {
-	return basePath + "/aufs/diff/" + layerHash
-}
-
-// GetCachePath returns the cache-id file path for the current given hash
-func (fs filesystem) GetLayerCacheFilePath(basePath, sha256Hash string) string {
-	return basePath + "/image/aufs/layerdb/sha256/" + sha256Hash + "/cache-id"
-}
-
-// GetContainerParentPath returns the path where we can find the parent file for the given container
-func (fs filesystem) GetContainerParentPath(basePath, containerFullHash string) string {
-	return basePath + "/image/aufs/layerdb/mounts/" + containerFullHash + "/parent"
-}
-
-// GetLayerParentPath returns the path where we can find the parent of the given layer
-func (fs filesystem) GetLayerParentPath(basePath, sha256Hash string) string {
-	return basePath + "/image/aufs/layerdb/sha256/" + sha256Hash + "/parent"
-}
-
-// GetDiffPath returns the path where all the diffs are present
-func (fs filesystem) GetDiffPath(basePath string) string {
-	return basePath + "/aufs/diff/"
-}
-
-// ProcessDiffFolders eliminates from the list of folders fed the ones that do not
-// belong directly to a diff
-func (fs filesystem) ProcessDiffFolders(folders []string) []string {
-	retDiffs := []string{}
-	for _, folder := range folders {
-		if folder == "." || folder == ".." || folder == "" {
-			continue
-		}
-		retDiffs = append(retDiffs, folder)
-	}
-
-	return retDiffs
+func (fs filesystem) GetLayerParentPath(fsPath, layerHash string) string {
+	return fsPath + "/image/aufs/layerdb/sha256/" + layerHash + "/parent"
 }
 
 // Filesystem exports the current fs data structure

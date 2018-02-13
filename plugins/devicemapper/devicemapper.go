@@ -3,19 +3,19 @@ package main
 type filesystem string
 
 func (fs filesystem) GetContainerMountPath(fsPath, containerHash string) string {
-	return fsPath + "/image/overlay2/layerdb/mounts/" + containerHash + "/mount-id"
+	return fsPath + "/image/devicemapper/layerdb/mounts/" + containerHash + "/mount-id"
 }
 
 func (fs filesystem) GetParentFileLocation(fsPath, containerHash string) string {
-	return fsPath + "/image/overlay2/layerdb/mounts/" + containerHash + "/parent"
+	return fsPath + "/image/devicemapper/layerdb/mounts/" + containerHash + "/parent"
 }
 
 func (fs filesystem) GetLayerSizePath(fsPath, layerHash string) string {
-	return fsPath + "/image/overlay2/layerdb/sha256/" + layerHash + "/size"
+	return fsPath + "/image/devicemapper/layerdb/sha256/" + layerHash + "/size"
 }
 
 func (fs filesystem) GetLayerParentPath(fsPath, layerHash string) string {
-	return fsPath + "/image/overlay2/layerdb/sha256/" + layerHash + "/parent"
+	return fsPath + "/image/devicemapper/layerdb/sha256/" + layerHash + "/parent"
 }
 
 // Filesystem exports the current fs data structure
