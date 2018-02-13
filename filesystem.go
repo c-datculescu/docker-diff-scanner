@@ -115,7 +115,7 @@ func (c *Container) GetParentLayer() error {
 		return err
 	}
 
-	c.ParentChain = NewContainerLayer(string(contents))
+	c.ParentChain = NewContainerLayer(string(contents), c.Filesystem)
 	// initialize the layer chain
 	err = c.ParentChain.Init()
 	if err != nil {
@@ -126,13 +126,14 @@ func (c *Container) GetParentLayer() error {
 }
 
 // NewContainerLayer returns a new fresh container layer
-func NewContainerLayer(sha256hash string) *ContainerLayer {
+func NewContainerLayer(sha256hash string, filesystem FilesystemPather) *ContainerLayer {
 	// check if the containerLayer already exists and return it without actually doing anything
 	if value, exists := ExistingLayers[sha256hash]; exists == true {
 		return value
 	}
 	return &ContainerLayer{
 		Hash: sha256hash,
+                Filesystem: filesystem,
 	}
 }
 
@@ -211,7 +212,7 @@ func (c *ContainerLayer) GetParent() error {
 		return errors.New("The hash is wrong: " + string(contents))
 	}
 
-	c.Parent = NewContainerLayer(parentHash)
+	c.Parent = NewContainerLayer(parentHash, c.Filesystem)
 	err = c.Parent.Init()
 	if err != nil {
 		return nil
@@ -287,8 +288,8 @@ func CalculateFolderSize(folderPath string) (int64, error) {
 }
 
 // GetAllContainers returns all the containers currently running in the target server
-func GetAllContainers() ([]*Container, error) {
-	files, err := ioutil.ReadDir(*fsPath)
+func GetAllContainers(filesystemPlugin FilesystemPather) ([]*Container, error) {
+	files, err := ioutil.ReadDir(*fsPath + "/containers/")
 	if err != nil {
 		return nil, err
 	}
@@ -297,6 +298,7 @@ func GetAllContainers() ([]*Container, error) {
 	for _, file := range files {
 		container := &Container{
 			Hash: file.Name(),
+                        Filesystem: filesystemPlugin,
 		}
 		err := container.Init()
 		if err != nil {
@@ -315,8 +317,9 @@ var (
 
 func main() {
 	flag.Parse()
+        filesystem := loadFilesystemPlugin(*fs)
 
-	containers, err := GetAllContainers()
+	containers, err := GetAllContainers(filesystem)
 	if err != nil {
 		log.Fatal(err)
 	}
