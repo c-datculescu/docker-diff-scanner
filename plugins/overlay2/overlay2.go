@@ -18,7 +18,7 @@ func (fs filesystem) GetLayerParentPath(fsPath, layerHash string) string {
 	return fsPath + "/image/overlay2/layerdb/sha256/" + layerHash + "/parent"
 }
 
-func (fs filesystem) CetCacheIDPath(fsPath, layerHash string) string {
+func (fs filesystem) GetCacheIDPath(fsPath, layerHash string) string {
 	return fsPath + "/image/overlay2/layerdb/sha256/" + layerHash + "/cache-id"
 }
 
