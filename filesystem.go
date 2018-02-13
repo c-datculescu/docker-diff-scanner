@@ -380,7 +380,9 @@ func main() {
 	for _, container := range containers {
 		// start printing the details about the current container
 		fmt.Printf(
-			"Name: %s\nHash: %s\nStatus: %s\nStartedAt: %s\n\nParents:\n",
+			"COWLocation: %s\nCOWSize: %d\nName: %s\nHash: %s\nStatus: %s\nStartedAt: %s\n\nParents:\n",
+			container.COWLocation,
+			container.COWSize,
 			container.ContainerDetails.Name,
 			container.Hash,
 			container.ContainerDetails.State.Status,
