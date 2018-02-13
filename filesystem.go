@@ -298,7 +298,10 @@ func GetAllContainers() ([]*Container, error) {
 		container := &Container{
 			Hash: file.Name(),
 		}
-		container.Init()
+		err := container.Init()
+		if err != nil {
+			return nil, err
+		}
 		containers = append(containers, container)
 	}
 
