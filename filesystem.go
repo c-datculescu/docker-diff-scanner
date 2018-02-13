@@ -127,13 +127,19 @@ func (c *Container) GetParentLayer() error {
 
 // NewContainerLayer returns a new fresh container layer
 func NewContainerLayer(sha256hash string, filesystem FilesystemPather) *ContainerLayer {
+	// check if the hash is in the format: sha256:hash
+	bits := strings.Split(sha256hash, ":")
+	if len(bits) == 2 {
+		sha256hash = bits[1]
+	}
+
 	// check if the containerLayer already exists and return it without actually doing anything
 	if value, exists := ExistingLayers[sha256hash]; exists == true {
 		return value
 	}
 	return &ContainerLayer{
-		Hash: sha256hash,
-                Filesystem: filesystem,
+		Hash:       sha256hash,
+		Filesystem: filesystem,
 	}
 }
 
@@ -297,8 +303,8 @@ func GetAllContainers(filesystemPlugin FilesystemPather) ([]*Container, error) {
 	containers := []*Container{}
 	for _, file := range files {
 		container := &Container{
-			Hash: file.Name(),
-                        Filesystem: filesystemPlugin,
+			Hash:       file.Name(),
+			Filesystem: filesystemPlugin,
 		}
 		err := container.Init()
 		if err != nil {
@@ -317,7 +323,7 @@ var (
 
 func main() {
 	flag.Parse()
-        filesystem := loadFilesystemPlugin(*fs)
+	filesystem := loadFilesystemPlugin(*fs)
 
 	containers, err := GetAllContainers(filesystem)
 	if err != nil {
