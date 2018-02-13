@@ -116,7 +116,7 @@ func (c *Container) GetParentLayer() error {
 		return err
 	}
 
-	c.ParentChain = NewContainerLayer(string(contents), c.Filesystem)
+	c.ParentChain = NewContainerLayer(string(contents), c.Filesystem, c)
 	// initialize the layer chain
 	err = c.ParentChain.Init()
 	if err != nil {
@@ -127,7 +127,7 @@ func (c *Container) GetParentLayer() error {
 }
 
 // NewContainerLayer returns a new fresh container layer
-func NewContainerLayer(sha256hash string, filesystem FilesystemPather) *ContainerLayer {
+func NewContainerLayer(sha256hash string, filesystem FilesystemPather, container *Container) *ContainerLayer {
 	// check if the hash is in the format: sha256:hash
 	bits := strings.Split(sha256hash, ":")
 	if len(bits) == 2 {
@@ -136,6 +136,11 @@ func NewContainerLayer(sha256hash string, filesystem FilesystemPather) *Containe
 
 	// check if the containerLayer already exists and return it without actually doing anything
 	if value, exists := ExistingLayers[sha256hash]; exists == true {
+		value.SharedCount++
+		if container == nil {
+			return value
+		}
+		value.Containers = append(value.Containers, container.ContainerDetails.Name)
 		return value
 	}
 	return &ContainerLayer{
@@ -155,6 +160,9 @@ type ContainerLayer struct {
 	Hash     string
 	Location string
 	Parent   *ContainerLayer
+
+	SharedCount int      // the number of times this layer is shared across containers
+	Containers  []string // the list of containers that share this layer
 
 	Filesystem FilesystemPather
 }
@@ -220,7 +228,7 @@ func (c *ContainerLayer) GetParent() error {
 		return errors.New("The hash is wrong: " + string(contents))
 	}
 
-	c.Parent = NewContainerLayer(parentHash, c.Filesystem)
+	c.Parent = NewContainerLayer(parentHash, c.Filesystem, nil)
 	err = c.Parent.Init()
 	if err != nil {
 		return nil
@@ -320,13 +328,15 @@ func GetAllContainers(filesystemPlugin FilesystemPather) ([]*Container, error) {
 
 // RecursivePrintParents takes a parent and recursively prints the layers it uses
 func RecursivePrintParents(layer *ContainerLayer) {
-	format := "\tLocation: %s\n\tSize: %d\n\tHash: %s\n\t===\n"
+	format := "\tLocation: %s\n\tSize: %d\n\tHash: %s\n\tShared: %d\n\tContainers: %v\n\t===\n"
 	if layer != nil {
 		fmt.Printf(
 			format,
 			layer.Location,
 			layer.Size,
 			layer.Hash,
+			layer.SharedCount,
+			layer.Containers,
 		)
 		RecursivePrintParents(layer.Parent)
 	} else {
