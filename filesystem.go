@@ -23,6 +23,7 @@ type FilesystemPather interface {
 	GetParentFileLocation(fsPath, containerHash string) string
 	GetLayerSizePath(fsPath, layerHash string) string
 	GetLayerParentPath(fsPath, layerHash string) string
+	GetLayerPath(fsPath, layerHash string) string
 }
 
 // DockerInspectResult is the result of inspecting the needed container
@@ -162,6 +163,7 @@ type ContainerLayer struct {
 // parents
 // size
 func (c *ContainerLayer) Init() error {
+	c.Location = c.Filesystem.GetLayerPath(*fsPath, c.Hash)
 	if c.Parent != nil {
 		// the parent has already initialized. no need to do anthing there
 		return nil

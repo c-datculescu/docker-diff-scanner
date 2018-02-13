@@ -18,5 +18,9 @@ func (fs filesystem) GetLayerParentPath(fsPath, layerHash string) string {
 	return fsPath + "/image/devicemapper/layerdb/sha256/" + layerHash + "/parent"
 }
 
+func (fs filesystem) GetLayerPath(fsPath, layerHash string) string {
+	return fsPath + "/devicemapper/mnt/" + layerHash
+}
+
 // Filesystem exports the current fs data structure
 var Filesystem filesystem
