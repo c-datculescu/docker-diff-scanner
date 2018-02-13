@@ -316,8 +316,9 @@ func GetAllContainers(filesystemPlugin FilesystemPather) ([]*Container, error) {
 	return containers, nil
 }
 
+// RecursivePrintParents takes a parent and recursively prints the layers it uses
 func RecursivePrintParents(layer *ContainerLayer) {
-	format := "\tLocation: %s\n\tSize: %d\n\tHash: %s\n"
+	format := "\tLocation: %s\n\tSize: %d\n\tHash: %s\n\t===\n"
 	if layer != nil {
 		fmt.Printf(
 			format,
@@ -327,7 +328,7 @@ func RecursivePrintParents(layer *ContainerLayer) {
 		)
 		RecursivePrintParents(layer.Parent)
 	} else {
-		fmt.Println("\n")
+		fmt.Println("\n==========")
 	}
 }
 
