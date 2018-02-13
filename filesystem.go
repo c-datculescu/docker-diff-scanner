@@ -315,6 +315,9 @@ func loadFilesystemPlugin(filesystem string) FilesystemPather {
 
 // CalculateFolderSize calculates the folder size given a path
 func CalculateFolderSize(folderPath string) (int64, error) {
+	if _, err := os.Stat(folderPath); err != nil {
+		return 0, err
+	}
 	diskCommand := exec.Command("du", "-sb", folderPath)
 	getFirstColumnCommand := exec.Command("cut", "-f1")
 	reader, writer := io.Pipe()
