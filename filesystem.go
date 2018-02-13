@@ -148,7 +148,9 @@ func NewContainerLayer(sha256hash string, filesystem FilesystemPather, container
 		Filesystem:  filesystem,
 		SharedCount: 1,
 	}
-	layer.Containers = append(layer.Containers, container.ContainerDetails.Name)
+	if container != nil {
+		layer.Containers = append(layer.Containers, container.ContainerDetails.Name)
+	}
 
 	ExistingLayers[sha256hash] = layer
 
