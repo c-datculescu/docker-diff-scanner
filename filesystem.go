@@ -96,11 +96,13 @@ func (c *Container) GetContainerDetails() error {
 
 // GetCOWSize returns the size of the filesystem occupied by the current container
 func (c *Container) GetCOWSize() error {
+	// this file will indicate where to look for the mount location, but it is not the actual mount location
 	mountFileLocation := c.Filesystem.GetContainerMountFilePath(*fsPath, c.Hash)
 	contents, err := ioutil.ReadFile(mountFileLocation)
 	if err != nil {
 		return err
 	}
+	// this will return the proper mount location on which we can actually calculate the size of the filesystem for the current container
 	mountLocation := c.Filesystem.GetMntPath(*fsPath, string(contents))
 	// read the file and get the proper
 	size, err := CalculateFolderSize(mountLocation)
@@ -108,7 +110,7 @@ func (c *Container) GetCOWSize() error {
 		return err
 	}
 
-	// allocate the COW size and path for easy processing
+	// allocate the filesystem size and path for easy processing
 	c.COWSize = size
 	c.COWLocation = mountLocation
 	return nil
@@ -123,8 +125,8 @@ func (c *Container) GetParentLayer() error {
 		return err
 	}
 
-	c.ParentChain = NewContainerLayer(string(contents), c.Filesystem, c)
 	// initialize the layer chain
+	c.ParentChain = NewContainerLayer(string(contents), c.Filesystem, c)
 	err = c.ParentChain.Init()
 	if err != nil {
 		return err
@@ -134,6 +136,9 @@ func (c *Container) GetParentLayer() error {
 }
 
 // NewContainerLayer returns a new fresh container layer
+// Attention: the function can receive a nil container, as it is not needed to pass a container to all the layers in the chain
+// Just the first layer (parent layer of a container) will contain the list of containers allocated, since all the lower level layers
+// will just be inherited for all containers
 func NewContainerLayer(sha256hash string, filesystem FilesystemPather, container *Container) *ContainerLayer {
 	// check if the hash is in the format: sha256:hash
 	bits := strings.Split(sha256hash, ":")
@@ -141,7 +146,7 @@ func NewContainerLayer(sha256hash string, filesystem FilesystemPather, container
 		sha256hash = bits[1]
 	}
 
-	// check if the containerLayer already exists and return it without actually doing anything
+	// check if the containerLayer already exists, increase the counters and allocate the containers (if we have them)
 	if value, exists := ExistingLayers[sha256hash]; exists == true {
 		value.SharedCount++
 		if container == nil {
@@ -150,6 +155,8 @@ func NewContainerLayer(sha256hash string, filesystem FilesystemPather, container
 		value.Containers = append(value.Containers, container.ContainerDetails.Name)
 		return value
 	}
+
+	// initialize a new layer, allocate the current container and set the shared counter for it
 	layer := &ContainerLayer{
 		Hash:        sha256hash,
 		Filesystem:  filesystem,
