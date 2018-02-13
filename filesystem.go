@@ -143,10 +143,14 @@ func NewContainerLayer(sha256hash string, filesystem FilesystemPather, container
 		value.Containers = append(value.Containers, container.ContainerDetails.Name)
 		return value
 	}
-	return &ContainerLayer{
+	layer := &ContainerLayer{
 		Hash:       sha256hash,
 		Filesystem: filesystem,
 	}
+
+	ExistingLayers[sha256hash] = layer
+
+	return layer
 }
 
 // ExistingLayers records the existing layers so we do not have to calculate them again
