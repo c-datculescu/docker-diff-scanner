@@ -23,7 +23,8 @@ type FilesystemPather interface {
 	GetParentFileLocation(fsPath, containerHash string) string
 	GetLayerSizePath(fsPath, layerHash string) string
 	GetLayerParentPath(fsPath, layerHash string) string
-	GetLayerPath(fsPath, layerHash string) string
+	GetCacheIDPath(fsPath, layerHash string) string
+	GetMntPath(fsPath, layerHash string) string
 }
 
 // DockerInspectResult is the result of inspecting the needed container
@@ -179,12 +180,23 @@ type ContainerLayer struct {
 // parents
 // size
 func (c *ContainerLayer) Init() error {
-	c.Location = c.Filesystem.GetLayerPath(*fsPath, c.Hash)
+	cacheIDLocation := c.Filesystem.GetCacheIDPath(*fsPath, c.Hash)
+	contents, err := ioutil.ReadFile(cacheIDLocation)
+	if err != nil {
+		return err
+	}
+	cacheID := string(contents)
+	bits := strings.Split(string(contents), ":")
+	if len(bits) == 2 {
+		cacheID = bits[1]
+	}
+	c.Location = c.Filesystem.GetMntPath(*fsPath, cacheID)
+
 	if c.Parent != nil {
 		// the parent has already initialized. no need to do anthing there
 		return nil
 	}
-	err := c.ReadSize()
+	err = c.ReadSize()
 	if err != nil {
 		return err
 	}

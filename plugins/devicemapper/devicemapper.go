@@ -18,8 +18,12 @@ func (fs filesystem) GetLayerParentPath(fsPath, layerHash string) string {
 	return fsPath + "/image/devicemapper/layerdb/sha256/" + layerHash + "/parent"
 }
 
-func (fs filesystem) GetLayerPath(fsPath, layerHash string) string {
-	return fsPath + "/devicemapper/mnt/" + layerHash
+func (fs filesystem) CetCacheIDPath(fsPath, layerHash string) string {
+	return fsPath + "/image/devicemapper/layerdb/sha256/" + layerHash + "/cache-id"
+}
+
+func (fs filesystem) GetMntPath(fsPath, layerHash string) string {
+	return fsPath + "/devicemapper/mnt/" + layerHash + "/"
 }
 
 // Filesystem exports the current fs data structure
