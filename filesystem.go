@@ -316,6 +316,21 @@ func GetAllContainers(filesystemPlugin FilesystemPather) ([]*Container, error) {
 	return containers, nil
 }
 
+func RecursivePrintParents(layer *ContainerLayer) {
+	format := "\tLocation: %s\n\tSize: %d\n\tHash: %s\n"
+	if layer != nil {
+		fmt.Printf(
+			format,
+			layer.Location,
+			layer.Size,
+			layer.Hash,
+		)
+		RecursivePrintParents(layer.Parent)
+	} else {
+		fmt.Println("\n")
+	}
+}
+
 var (
 	fsPath = flag.String("fs-path", "/var/lib/docker", "The path where the docker filesystem can be located")
 	fs     = flag.String("fs", "aufs", "The filesystem current docker daemon uses")
@@ -338,12 +353,6 @@ func main() {
 			container.ContainerDetails.State.Status,
 			container.ContainerDetails.State.StartedAt,
 		)
-
-		fmt.Printf(
-			"\tLocation: %s\n\tSize: %d\n\tHash: %s",
-			container.ParentChain.Location,
-			container.ParentChain.Size,
-			container.ParentChain.Hash,
-		)
+		RecursivePrintParents(container.ParentChain)
 	}
 }
