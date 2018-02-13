@@ -225,6 +225,10 @@ func (c *ContainerLayer) ReadSize() error {
 		return err
 	}
 
+	if string(contents) == "" {
+		c.Size = -100
+	}
+
 	size, err := strconv.ParseInt(string(contents), 10, 64)
 	if err != nil {
 		return err
