@@ -100,7 +100,8 @@ func GetAllContainers(filesystemPlugin FilesystemPather) ([]*Container, error) {
 		}
 		err := container.Init()
 		if err != nil {
-			return nil, err
+			log.Println("File " + file.Name() + " does not have an associated container, skipping...")
+			continue
 		}
 		containers = append(containers, container)
 	}
