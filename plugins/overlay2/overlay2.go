@@ -23,7 +23,7 @@ func (fs filesystem) GetCacheIDPath(fsPath, layerHash string) string {
 }
 
 func (fs filesystem) GetMntPath(fsPath, layerHash string) string {
-	return fsPath + "/overlay2/mnt/" + layerHash + "/"
+	return fsPath + "/overlay2/" + layerHash + "/"
 }
 
 // Filesystem exports the current fs data structure
