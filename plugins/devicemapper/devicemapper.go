@@ -2,7 +2,7 @@ package main
 
 type filesystem string
 
-func (fs filesystem) GetContainerMountPath(fsPath, containerHash string) string {
+func (fs filesystem) GetContainerMountFilePath(fsPath, containerHash string) string {
 	return fsPath + "/image/devicemapper/layerdb/mounts/" + containerHash + "/mount-id"
 }
 

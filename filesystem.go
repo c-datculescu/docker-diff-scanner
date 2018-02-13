@@ -19,7 +19,7 @@ import (
 
 // FilesystemPather is the interface responsible for returning paths for each supported filesystem
 type FilesystemPather interface {
-	GetContainerMountPath(fsPath, containerHash string) string
+	GetContainerMountFilePath(fsPath, containerHash string) string
 	GetParentFileLocation(fsPath, containerHash string) string
 	GetLayerSizePath(fsPath, layerHash string) string
 	GetLayerParentPath(fsPath, layerHash string) string
@@ -96,7 +96,13 @@ func (c *Container) GetContainerDetails() error {
 
 // GetCOWSize returns the size of the filesystem occupied by the current container
 func (c *Container) GetCOWSize() error {
-	mountLocation := c.Filesystem.GetContainerMountPath(*fsPath, c.Hash)
+	mountFileLocation := c.Filesystem.GetContainerMountFilePath(*fsPath, c.Hash)
+	contents, err := ioutil.ReadFile(mountFileLocation)
+	if err != nil {
+		return err
+	}
+	mountLocation := c.Filesystem.GetMntPath(*fsPath, string(contents))
+	// read the file and get the proper
 	size, err := CalculateFolderSize(mountLocation)
 	if err != nil {
 		return err
