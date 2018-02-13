@@ -154,7 +154,7 @@ func NewContainerLayer(sha256hash string, filesystem FilesystemPather, container
 }
 
 // ExistingLayers records the existing layers so we do not have to calculate them again
-var ExistingLayers map[string]*ContainerLayer
+var ExistingLayers = map[string]*ContainerLayer{}
 
 // ContainerLayer represents a layer that the container uses
 // Various layers will be shared between various containers, these
